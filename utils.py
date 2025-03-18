@@ -1,10 +1,10 @@
 from sqlalchemy import text
-from datetime import datetime
+from datetime import datetime, timezone
 
 # To get failed arrived messages of a bot from GTP influxDB
-def get_failed_arrived_msg(bot_id, iengine_autogen):
-    get_failed_arrived_msg_query = f'SELECT * FROM \"GreyOrange\".\"autogen\".\"zw_bot_events\" WHERE time > now() - 3d AND time < now() AND bot_id = \'{bot_id}\' AND event = \'arrived\' AND processing_status = \'unprocessable\' order by time desc limit 1'
-    failed_arrived_msg = iengine_autogen.query(get_failed_arrived_msg_query)
+def get_failed_arrived_msg_by_botID(bot_id, iengine_greyorange):
+    get_failed_arrived_msg_query = f'SELECT * FROM \"GreyOrange\".\"autogen\".\"zw_bot_events\" WHERE time > now() -3d AND time < now() AND bot_id = \'{bot_id}\' AND event = \'arrived\' AND processing_status = \'unprocessable\' order by time desc limit 1'
+    failed_arrived_msg = iengine_greyorange.query(get_failed_arrived_msg_query)
 
     return failed_arrived_msg
 
@@ -16,12 +16,12 @@ def get_induct_id(front_pps_id, pengine_wms_process):
         induct_id = result.fetchone()[0]
 
     return induct_id
-    
+
 
 # To get the previous shipments sorted by the bot
 def get_shipments_from_bot(time,pengine_cbort,bot_id):
     with pengine_cbort.connect() as connection:
-        result = connection.execute(text(f"SELECT uid, inductid, botid, awb, dashboard_status, chuteid, destination, induct_time, sort_time FROM data_shipment WHERE botid = '{bot_id}' and induct_time < '{time}' ORDER BY induct_time DESC LIMIT 2;"))
+        result = connection.execute(text(f"SELECT uid, inductid, botid, awb, dashboard_status, chuteid, destination, induct_time, sort_time, sort_success FROM data_shipment WHERE botid = '{bot_id}' and induct_time < '{time}' ORDER BY induct_time DESC LIMIT 2;"))
         shipments = []
 
         for row in result.fetchall():
@@ -34,15 +34,17 @@ def get_shipments_from_bot(time,pengine_cbort,bot_id):
                 "chuteid": row[5],
                 "destination": row[6],
                 "induct_time": row[7],
-                "sort_time": row[8]
+                "sort_time": row[8],
+                "sort_success": row[9]
             }
-            shipments.append(shipment_data) 
+            shipments.append(shipment_data)
 
     return shipments
 
 
 # To Print shipments
 def print_shipments(shipments):
+    print("Last two shipments sorted by the Bot -")
     for index, shipment in enumerate(shipments, start=1):
         print(f"\n Shipment {index}:")
         print(f"Shipment UID/Pick transaction ID: {shipment['uid']}")
@@ -54,12 +56,21 @@ def print_shipments(shipments):
         print(f"Destination: {shipment['destination']}")
         print(f"Induct Time: {shipment['induct_time']}")
         print(f"Sort Time: {shipment['sort_time']}")
-        print("-" * 40) 
+
+        if shipment['sort_success'] == '':
+            induct_time=datetime.strptime(shipment['induct_time'], "%Y-%m-%d %H:%M:%S.%f%z")
+            current_time=datetime.now(timezone.utc)
+            time_diff = current_time - induct_time
+            print(f'Duration since induction time: {time_diff}')
+        else:
+            print(f"Sort Success: {shipment['sort_success']}")
+
+        print("-" * 40)
 
 
 # To get bot ids that arrived on the induct during the time interval
-def get_arrived_bots(iengine_sms, timestamp_start, timestamp_end, induct_id):
-    get_arrived_bots = f'SELECT bot_id FROM \"telegraf\".\"autogen\".\"induct_interaction_data\" WHERE time > \'{timestamp_start}\' AND time < \'{timestamp_end}\' AND station_id = \'{induct_id}\' AND status=\'"bot_arrival"\''
-    arrived_bots = iengine_sms.query(get_arrived_bots)
-    
-    return arrived_bots
+def get_failed_arrived_msg_by_ppsID(iengine_greyorange, timestamp_start, timestamp_end, front_pps_id):
+    get_failed_arrived_msg = f'SELECT * FROM \"GreyOrange\".\"autogen\".\"zw_bot_events\" WHERE time > \'{timestamp_start}\' AND time < \'{timestamp_end}\' AND front_pps_id = {front_pps_id} AND event = \'arrived\' AND processing_status = \'unprocessable\' order by time limit 1'
+    failed_arrived_msg = iengine_greyorange.query(get_failed_arrived_msg)
+
+    return failed_arrived_msg
