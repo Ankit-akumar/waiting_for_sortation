@@ -8,16 +8,16 @@ class DB_Connect:
     '''
 
     def __init__(self, **kwargs):
-        self.PUSER = 'postgres'
-        self.PPASSWORD = '212a4621b1fd7fc3'
-        self.PPORT = '5432'
-        self.PDATABASE = 'cbort_sandbox'
-        self.PHOST = '10.139.219.13'
-        self.IUSER = 'admin'
-        self.IPASSWORD = 'admin'
-        self.IPORT = '8086'
-        self.IDATABASE = 'GreyOrange'
-        self.IHOST = '172.28.62.168'
+        self.PUSER = os.getenv('RMS_POSTGRES_USERNAME')
+        self.PPASSWORD = os.getenv('RMS_POSTGRES_PASSWORD')
+        self.PPORT = os.getenv('RMS_POSTGRES_PORT')
+        self.PDATABASE = os.getenv('RMS_POSTGRES_DATABASE_CBORT')
+        self.PHOST = os.getenv('RMS_POSTGRES_HOST')
+        self.IUSER = os.getenv('RTP_INFLUX_USERNAME')
+        self.IPASSWORD = os.getenv('RTP_INFLUX_PASSWORD')
+        self.IPORT = os.getenv('RTP_INFLUX_PORT')
+        self.IDATABASE = os.getenv('RTP_INFLUX_DATABASE')
+        self.IHOST = os.getenv('RTP_INFLUX_HOST')
         self.__dict__.update(kwargs)
 
     def openconnection_postgres(self):
