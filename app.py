@@ -84,9 +84,9 @@ elif execution_method == '0':
 else:
     # CASE3: Getting all failed bots in the past 6 hours
 
-    df = get_all_failed_arrived_msg(iengine_greyorange=iengine_greyorange)
+    df = get_all_failed_arrived_msg(iengine_greyorange=iengine_greyorange, file_logger=file_logger)
 
-    get_count_shipments_data_for_bot(pengine_cbort=pengine_cbort, df=df)
+    get_count_shipments_data_for_bot(pengine_cbort=pengine_cbort, df=df, file_logger=file_logger)
 
 file_logger.debug("Script executed")
 

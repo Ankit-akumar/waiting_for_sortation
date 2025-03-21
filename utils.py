@@ -49,9 +49,10 @@ def get_induct_id(front_pps_id, pengine_wms_process):
 
 
 # To get the previous shipments sorted by the bot
-def get_shipments_from_bot(time,pengine_cbort,bot_id):
+def get_shipments_from_bot(time,pengine_cbort,bot_id,file_logger):
     with pengine_cbort.connect() as connection:
         result = connection.execute(text(f"SELECT uid, inductid, botid, awb, dashboard_status, chuteid, destination, induct_time, sort_time, sort_success FROM data_shipment WHERE botid = '{bot_id}' and induct_time < '{time}' ORDER BY induct_time DESC LIMIT 2;"))
+        file_logger.debug(f'Shipment data fetched - {result}')
         shipments = []
 
         for row in result.fetchall():
@@ -96,6 +97,7 @@ def print_shipments(shipments):
             print(f"Sort Success: {shipment['sort_success']}")
 
         print("-" * 40)
+        
 
 
 # To get bot ids that arrived on the induct during the time interval
@@ -107,7 +109,7 @@ def get_failed_arrived_msg_by_ppsID(iengine_greyorange, timestamp_start, timesta
 
 
 # Get all failed arrived messages in the last 6 hours
-def get_all_failed_arrived_msg(iengine_greyorange):
+def get_all_failed_arrived_msg(iengine_greyorange, file_logger):
     query = f'SELECT * FROM \"GreyOrange\".\"autogen\".\"zw_bot_events\" WHERE time > now() -36h AND time < now() AND event = \'arrived\' AND processing_status = \'unprocessable\' order by time'
     tables = iengine_greyorange.query(query)
 
@@ -133,33 +135,35 @@ def get_all_failed_arrived_msg(iengine_greyorange):
     # Get the lastest entry for each bot_id
     df = df.groupby("bot_id").first().reset_index()
 
-    print(df.to_string())
+    df_string = df.to_string()
+    file_logger.debug(f'Failed arrived msg dataframe - {df_string}')
+    print(df_string)
 
     return df
 
 
 # Get all shipment data in the df
-def get_count_shipments_data_for_bot(pengine_cbort, df):
+def get_count_shipments_data_for_bot(pengine_cbort, df, file_logger):
     with pengine_cbort.connect() as connection:
         for index,row in df.iterrows():
             bot_id = row["bot_id"]
             time = row["time"]
     
             result = connection.execute(text(f"select count(*) from data_shipment where botid = '{bot_id}' and induct_time > '{time}';"))
+            file_logger.debug(f'shiment count query result for bot_id={bot_id} {result}')
             result = result.fetchone()[0]
             if(result == 0):
-                print(f"Bot {bot_id} has not sorted any shipments since experiencing failed arrived event at {time}. Kindly check this bot")
+                file_logger.debug(f'Bot {bot_id} has not sorted any shipments since experiencing failed arrived event at {time}. Kindly check this bot')
+                print(f"bot_id={bot_id} has not sorted any shipments since experiencing failed arrived event at {time}. Kindly check this bot")
             else:
-                print(f"Bot {bot_id} has sorted {result} shipments after experiencing failed arrived msg at {time}")
+                file_logger.debug(f'Bot {bot_id} has sorted {result} shipments after experiencing failed arrived msg at {time}')
+                print(f"bot_id={bot_id} has sorted {result} shipments after experiencing failed arrived msg at {time}")
 
 
 
 # Execution method by bot
 def execute_by_bot(pengine_cbort, points_list, file_logger):
     file_logger.debug(f"failed arrived msg -> {points_list}")
-
-    # First item
-    # first_point = points_list[0]  
 
     time, back_pps_id, front_pps_id, bin_id, processing_failure_reason = None, None, None, None, None
 
@@ -182,13 +186,12 @@ def execute_by_bot(pengine_cbort, points_list, file_logger):
     file_logger.debug(f"formatted_time for postgres query - {formatted_time}")
 
     # Getting previous shipments sorted by the bot
-    shipments = get_shipments_from_bot(time=formatted_time,pengine_cbort=pengine_cbort,bot_id=bot_id)
+    shipments = get_shipments_from_bot(time=formatted_time,pengine_cbort=pengine_cbort,bot_id=bot_id,file_logger=file_logger)
 
     # printing shipments
     if shipments:
         print_shipments(shipments=shipments)
         file_logger.debug(f"shipments inducted on the bot - {shipments}")
-
         link_to_sop='https://work.greyorange.com/confluence/x/aWKxDQ'
         print(f"Kindly send the drop events manually. Here is the link to SOP - {link_to_sop}")
     else:
