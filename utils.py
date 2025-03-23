@@ -143,7 +143,9 @@ def get_all_failed_arrived_msg(iengine_greyorange, file_logger):
 
 
 # Get all shipment data in the df
-def get_count_shipments_data_for_bot(pengine_cbort, df, file_logger):
+def get_failed_bots(pengine_cbort, df, file_logger):
+    failed_bots = []
+
     with pengine_cbort.connect() as connection:
         for index,row in df.iterrows():
             bot_id = row["bot_id"]
@@ -152,12 +154,16 @@ def get_count_shipments_data_for_bot(pengine_cbort, df, file_logger):
             result = connection.execute(text(f"select count(*) from data_shipment where botid = '{bot_id}' and induct_time > '{time}';"))
             file_logger.debug(f'shiment count query result for bot_id={bot_id} {result}')
             result = result.fetchone()[0]
+
             if(result == 0):
+                failed_bots.append(f'{bot_id}')
                 file_logger.debug(f'Bot {bot_id} has not sorted any shipments since experiencing failed arrived event at {time}. Kindly check this bot')
                 print(f"bot_id={bot_id} has not sorted any shipments since experiencing failed arrived event at {time}. Kindly check this bot")
             else:
                 file_logger.debug(f'Bot {bot_id} has sorted {result} shipments after experiencing failed arrived msg at {time}')
                 print(f"bot_id={bot_id} has sorted {result} shipments after experiencing failed arrived msg at {time}")
+
+    return failed_bots
 
 
 

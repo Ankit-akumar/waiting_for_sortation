@@ -64,6 +64,7 @@ if execution_method == '1':
         file_logger.error(f"No failed arrival messages found in the past 3 days")
         print(f"No failed arrival messages found in the past 3 days")
 
+
 elif execution_method == '0':
     # CASE 2: When bot ID is given
 
@@ -81,12 +82,29 @@ elif execution_method == '0':
         file_logger.error(f"No failed arrival messages found in the past 3 days")
         print(f"No failed arrival messages found in the past 3 days")
 
+
 else:
     # CASE3: Getting all failed bots in the past 6 hours
 
     df = get_all_failed_arrived_msg(iengine_greyorange=iengine_greyorange, file_logger=file_logger)
 
-    get_count_shipments_data_for_bot(pengine_cbort=pengine_cbort, df=df, file_logger=file_logger)
+    failed_bots = get_failed_bots(pengine_cbort=pengine_cbort, df=df, file_logger=file_logger)
+
+    if len(failed_bots) != 0:
+        print("Now testing for each failed bot...")
+        for bot_id in failed_bots:
+            failed_arrived_msg = get_failed_arrived_msg_by_botID(bot_id=bot_id, iengine_greyorange=iengine_greyorange)
+
+            points_list = list(failed_arrived_msg.get_points())  # Convert iterator to list
+
+            if points_list: 
+                execute_by_bot(pengine_cbort=pengine_cbort, points_list=points_list, file_logger=file_logger)
+            else:
+                print()
+                file_logger.error(f"No failed arrival messages found in the past 3 days")
+                print(f"No failed arrival messages found in the past 3 days")
+
+
 
 file_logger.debug("Script executed")
 
