@@ -36,7 +36,12 @@ iengine_greyorange = DB_Connect(**{
     "PDATABASE":os.getenv('RTP_INFLUX_DATABASE')
 }).openconnection_influx()
 
-execution_method = input("Please enter the execution method: 0 for bot id & 1 for pps_id & 2 for getting all error bots in past 6 hours : ")
+execution_method = input("Please enter the execution method: \n"
+                         "0 for bot id\n"
+                         "1 for pps_id\n"
+                         "2 for Checking kafka & rabbitmq connectors\n"
+                         "3 for getting all error bots in past 6 hours\n")
+
 
 if execution_method == '1':
 
@@ -57,8 +62,8 @@ if execution_method == '1':
 
     points_list = list(failed_arrived_msg.get_points())  # Convert iterator to list
 
-    if points_list:  
-        execute_by_bot(pengine_cbort=pengine_cbort, points_list=points_list, file_logger=file_logger)
+    if points_list:
+        execute_by_bot(pengine_cbort=pengine_cbort, points_list=points_list, file_logger=file_logger, iengine_greyorange=iengine_greyorange, check_drop=True)
     else:
         print()
         file_logger.error(f"No failed arrival messages found in the past 3 days")
@@ -75,36 +80,45 @@ elif execution_method == '0':
 
     points_list = list(failed_arrived_msg.get_points())  # Convert iterator to list
 
-    if points_list: 
-        execute_by_bot(pengine_cbort=pengine_cbort, points_list=points_list, file_logger=file_logger)
+    if points_list:
+        execute_by_bot(pengine_cbort=pengine_cbort, points_list=points_list, file_logger=file_logger, iengine_greyorange=iengine_greyorange, check_drop=True)
     else:
         print()
         file_logger.error(f"No failed arrival messages found in the past 3 days")
         print(f"No failed arrival messages found in the past 3 days")
 
 
+elif execution_method == '2':
+    # CASE 3: Checking kakfa rabbitmq connectors
+    check_kafka_rabbitmq_connector(file_logger=file_logger)
+
+
 else:
-    # CASE3: Getting all failed bots in the past 6 hours
+    # Checking kakfa rabbitmq connectors
+    if check_kafka_rabbitmq_connector(file_logger=file_logger):
+        # CASE 4: Getting all failed bots in the past 6 hours
 
-    df = get_all_failed_arrived_msg(iengine_greyorange=iengine_greyorange, file_logger=file_logger)
+        df = get_all_failed_arrived_msg(iengine_greyorange=iengine_greyorange, file_logger=file_logger)
 
-    failed_bots = get_failed_bots(pengine_cbort=pengine_cbort, df=df, file_logger=file_logger)
+        if df.empty == False:
+            failed_bots = get_failed_bots(pengine_cbort=pengine_cbort, df=df, iengine_greyorange=iengine_greyorange, file_logger=file_logger)
 
-    if len(failed_bots) != 0:
-        print("Now testing for each failed bot...")
-        for bot_id in failed_bots:
-            failed_arrived_msg = get_failed_arrived_msg_by_botID(bot_id=bot_id, iengine_greyorange=iengine_greyorange)
+            if len(failed_bots) != 0:
+                print("Now testing for each failed bot...")
+                for bot_id in failed_bots:
+                    failed_arrived_msg = get_failed_arrived_msg_by_botID(bot_id=bot_id, iengine_greyorange=iengine_greyorange)
 
-            points_list = list(failed_arrived_msg.get_points())  # Convert iterator to list
+                    points_list = list(failed_arrived_msg.get_points())  # Convert iterator to list
 
-            if points_list: 
-                execute_by_bot(pengine_cbort=pengine_cbort, points_list=points_list, file_logger=file_logger)
-            else:
-                print()
-                file_logger.error(f"No failed arrival messages found in the past 3 days")
-                print(f"No failed arrival messages found in the past 3 days")
+                    if points_list:
+                        execute_by_bot(pengine_cbort=pengine_cbort, points_list=points_list, file_logger=file_logger, iengine_greyorange=iengine_greyorange, check_drop=False)
+                    else:
+                        file_logger.error(f"No failed arrival messages found for bot {bot_id}")
+                        print(f"No failed arrival messages found for bot {bot_id}")
+        else:
+            file_logger.error(f"No failed arrival messages found in the past 6 hours")
+            print(f"No failed arrival messages found in the past 6 hours")
 
 
 
 file_logger.debug("Script executed")
-

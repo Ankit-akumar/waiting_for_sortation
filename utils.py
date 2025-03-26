@@ -3,12 +3,13 @@ from datetime import datetime, timezone
 import logging
 import os
 import pandas as pd
+import requests
 
 def setup_logger(filename, console=False, level=logging.DEBUG):
     filename = os.path.dirname(os.path.realpath(__file__)) + '/logs/{}.log'.format(filename)
     logger = logging.getLogger(filename)
     logger.setLevel(level)
-    
+
     if console:
         console_handler = logging.StreamHandler()
         console_handler.setLevel(logging.DEBUG)
@@ -21,7 +22,7 @@ def setup_logger(filename, console=False, level=logging.DEBUG):
 
         #Adding console handler to logging
         logger.addHandler(console_handler)
-    
+
     else:
         file = logging.FileHandler(filename)
         formatter = logging.Formatter("%(asctime)s %(levelname)s - %(message)s")
@@ -97,7 +98,7 @@ def print_shipments(shipments):
             print(f"Sort Success: {shipment['sort_success']}")
 
         print("-" * 40)
-        
+
 
 
 # To get bot ids that arrived on the induct during the time interval
@@ -110,7 +111,7 @@ def get_failed_arrived_msg_by_ppsID(iengine_greyorange, timestamp_start, timesta
 
 # Get all failed arrived messages in the last 6 hours
 def get_all_failed_arrived_msg(iengine_greyorange, file_logger):
-    query = f'SELECT * FROM \"GreyOrange\".\"autogen\".\"zw_bot_events\" WHERE time > now() -36h AND time < now() AND event = \'arrived\' AND processing_status = \'unprocessable\' order by time'
+    query = f'SELECT * FROM \"GreyOrange\".\"autogen\".\"zw_bot_events\" WHERE time > now()-6h AND time < now() AND event = \'arrived\' AND processing_status = \'unprocessable\' order by time'
     tables = iengine_greyorange.query(query)
 
     data = []
@@ -126,6 +127,9 @@ def get_all_failed_arrived_msg(iengine_greyorange, file_logger):
 
     df = pd.DataFrame(data)
 
+    if df.empty == True:
+        return df
+
     # Ensure 'time' is in datetime format
     df["time"] = pd.to_datetime(df["time"])
 
@@ -137,44 +141,70 @@ def get_all_failed_arrived_msg(iengine_greyorange, file_logger):
 
     df_string = df.to_string()
     file_logger.debug(f'Failed arrived msg dataframe - {df_string}')
-    print(df_string)
+    # print(df_string)
 
     return df
 
 
+# Get last drop message
+def get_last_drop_msg_time_for_bot(iengine_greyorange, bot_id):
+    query = f'SELECT * FROM \"GreyOrange\".\"autogen\".\"zw_bot_events\" WHERE time > now()-6h AND time < now() AND event = \'drop\' AND processing_status = \'success\' AND bot_id = \'{bot_id}\' order by time desc limit 1'
+    last_drop_msg = iengine_greyorange.query(query)
+
+    points_list = list(last_drop_msg.get_points())  # Convert iterator to list
+
+    if points_list:
+        for point in points_list:
+            drop_time = point["received_at"]
+            return drop_time
+    return None
+
+
 # Get all shipment data in the df
-def get_failed_bots(pengine_cbort, df, file_logger):
+def get_failed_bots(pengine_cbort, df, file_logger, iengine_greyorange):
     failed_bots = []
 
     with pengine_cbort.connect() as connection:
         for index,row in df.iterrows():
             bot_id = row["bot_id"]
             time = row["time"]
-    
+
             result = connection.execute(text(f"select count(*) from data_shipment where botid = '{bot_id}' and induct_time > '{time}';"))
             file_logger.debug(f'shiment count query result for bot_id={bot_id} {result}')
             result = result.fetchone()[0]
 
             if(result == 0):
+                # Checking if the last drop msg was sent after last failed arrived msg
+
+                # Get last drop message
+                drop_time = get_last_drop_msg_time_for_bot(iengine_greyorange=iengine_greyorange,bot_id=bot_id)
+                if drop_time:
+                    drop_time = datetime.strptime(drop_time, "%Y-%m-%d %H:%M:%S.%f%z")
+                    drop_time = drop_time.strftime("%Y-%m-%d %H:%M:%S")
+                    drop_time = datetime.strptime(drop_time, "%Y-%m-%d %H:%M:%S")
+
+                    if drop_time > time:
+                        continue
+
                 failed_bots.append(f'{bot_id}')
                 file_logger.debug(f'Bot {bot_id} has not sorted any shipments since experiencing failed arrived event at {time}. Kindly check this bot')
                 print(f"bot_id={bot_id} has not sorted any shipments since experiencing failed arrived event at {time}. Kindly check this bot")
             else:
-                file_logger.debug(f'Bot {bot_id} has sorted {result} shipments after experiencing failed arrived msg at {time}')
-                print(f"bot_id={bot_id} has sorted {result} shipments after experiencing failed arrived msg at {time}")
+                # file_logger.debug(f'Bot {bot_id} has sorted {result} shipments after experiencing failed arrived msg at {time}')
+                # print(f"bot_id={bot_id} has sorted {result} shipments after experiencing failed arrived msg at {time}")
+                pass
 
     return failed_bots
 
 
-
 # Execution method by bot
-def execute_by_bot(pengine_cbort, points_list, file_logger):
+def execute_by_bot(pengine_cbort, points_list, file_logger, iengine_greyorange, check_drop):
     file_logger.debug(f"failed arrived msg -> {points_list}")
 
     time, back_pps_id, front_pps_id, bin_id, processing_failure_reason = None, None, None, None, None
 
     # Iterate over all points
-    for point in points_list:  
+    for point in points_list:
         time = point["received_at"]
         back_pps_id = point["back_pps_id"]
         front_pps_id = point["front_pps_id"]
@@ -191,6 +221,19 @@ def execute_by_bot(pengine_cbort, points_list, file_logger):
     formatted_time = dt.strftime("%Y-%m-%d %H:%M:%S")
     file_logger.debug(f"formatted_time for postgres query - {formatted_time}")
 
+    if check_drop:
+        # Checking if the last drop msg was sent after last failed arrived msg
+        drop_time = get_last_drop_msg_time_for_bot(iengine_greyorange=iengine_greyorange,bot_id=bot_id)
+    
+        if drop_time:
+            drop_time = datetime.strptime(drop_time, "%Y-%m-%dT%H:%M:%SZ")
+            drop_time = drop_time.strftime("%Y-%m-%d %H:%M:%S")
+            drop_time = datetime.strptime(drop_time, "%Y-%m-%d %H:%M:%S")
+            arrived_time = datetime.strptime(formatted_time, "%Y-%m-%d %H:%M:%S")
+            if drop_time > arrived_time:
+                print("Drop event has already been sent for the bot")
+                return
+
     # Getting previous shipments sorted by the bot
     shipments = get_shipments_from_bot(time=formatted_time,pengine_cbort=pengine_cbort,bot_id=bot_id,file_logger=file_logger)
 
@@ -205,3 +248,33 @@ def execute_by_bot(pengine_cbort, points_list, file_logger):
         print(f"ERROR: No shipments found for the given bot {bot_id} before {time}")
 
 
+# To check kakfa rabbitmq connectors
+def check_kafka_rabbitmq_connector(file_logger):
+    url = "http://172.28.62.190:8083/connectors?expand=status"
+
+    try:
+        response = requests.get(url, timeout=10)
+
+        if response.status_code == 200:
+            json_output = response.json()
+
+            # Extracting required values
+            connector_status = {
+                key: value["status"]["connector"]["state"] for key, value in json_output.items()
+            }
+
+            file_logger.debug(f'connector_status: {connector_status}')
+            print(connector_status)
+
+            for connector, status in connector_status.items():
+                if status!='RUNNING':
+                    print('Kafka Rabbitmq connectors are not running. Please check\n')
+                    return 0
+
+            print('All connectors are running.\n')
+            return 1
+        else:
+            print(f"Request failed with status code: {response.status_code}")
+
+    except requests.exceptions.RequestException as e:
+        print("Error making request:", e)
